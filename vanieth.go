@@ -5,68 +5,90 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto" // you need to `go get` this, as is not in the stdlib
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// Example run:
-//
-// $ go run vanieth.go 1234
-//
-// Address found:
-// addr: 123411cc4a2e2e3238ee8e22d0d7b3cf2c8add9c
-// pvt: 208439bf49edbc236bcffaa831e32006b91e6251150992fe5e704a3c3870415d
-//
-// https://github.com/ethereum/go-ethereum
-//
-
-// "main" method, generates a public key,  address
-//
-func addrGen(toMatch string) {
-	key, _ := crypto.GenerateKey()
-	addr := crypto.PubkeyToAddress(key.PublicKey)
-	addrStr := hex.EncodeToString(addr[:])
-	addrMatch(addrStr, toMatch, key)
+func find(toMatch string, done, tick chan<- bool, stop <-chan bool) {
+	loops := 0
+	for true {
+		select {
+		case <-stop:
+			done <- true
+		default:
+			key, _ := crypto.GenerateKey()
+			addr := crypto.PubkeyToAddress(key.PublicKey)
+			addrStr := hex.EncodeToString(addr[:])
+			if compare(addrStr, toMatch, key) {
+				done <- true
+			}
+		}
+		loops++
+		if loops > 1000 {
+			loops = 0
+			tick <- true
+		}
+	}
 }
 
-// tries to match the address with the string provided by the user, exits if successful
-//
-func addrMatch(addrStr string, toMatch string, key *ecdsa.PrivateKey) {
+func compare(addrStr string, toMatch string, key *ecdsa.PrivateKey) bool {
 	toMatch = strings.ToLower(toMatch)
 	addrStrMatch := strings.TrimPrefix(addrStr, toMatch)
 	found := addrStrMatch != addrStr
-	if found {
-		// fmt.Println("pub:", hex.EncodeToString(crypto.FromECDSAPub(&key.PublicKey))) // uncomment if you want the public key
-		keyStr := hex.EncodeToString(crypto.FromECDSA(key))
-		addrFound(addrStr, keyStr)
-		os.Exit(0) // here the program exits when it found a match
+
+	if !found {
+		return false
 	}
+
+	keyStr := hex.EncodeToString(crypto.FromECDSA(key))
+	addrFound(addrStr, keyStr)
+	return true
 }
 
-// main, executes addrGen ad-infinitum, until a match is found
-//
-func main() {
-	runtime.GOMAXPROCS(8)
+const numWorkers = 4
+const bucketSize = 40
 
-	var toMatch string
+func main() {
 	if len(os.Args) == 1 {
 		errNoArg()
 		os.Exit(1)
-	} else {
-		toMatch = os.Args[1]
-		// errWrongMatch(toMatch)
 	}
 
-	for true {
-		go addrGen(toMatch)
-		time.Sleep(1 * time.Millisecond)
+	toMatch := os.Args[1]
+
+	done := make(chan bool, numWorkers)
+	tick := make(chan bool)
+	stop := make(chan bool, numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		go find(toMatch, done, tick, stop)
 	}
+
+	loops := 0
+	start := time.Now()
+	for {
+		select {
+		case <-done:
+			break
+		case <-tick:
+			fmt.Print(".")
+			loops++
+			if loops%bucketSize == 0 {
+				diff := time.Now().Sub(start)
+				rate := float64(bucketSize*1000) / diff.Seconds()
+				fmt.Printf(" %8.2f addr/sec\n", rate)
+				start = time.Now()
+			}
+		}
+	}
+
+	for j := 0; j < numWorkers; j++ {
+		stop <- true
+	}
+	close(stop)
 }
-
-// non-interesting functions follow...
 
 func addrFound(addrStr string, keyStr string) {
 	println("Address found:")
@@ -80,10 +102,3 @@ func errNoArg() {
 	println("\nexample: go run vanieth.go 42")
 	println("\nexiting...")
 }
-
-// func errWrongMatch(match string) {
-// 	strings.ContainsAny(match, "")
-// 	if (wrongMatch) {
-// 		println("You need to pass a findable address")
-// 	}
-// }

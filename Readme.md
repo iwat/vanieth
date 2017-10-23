@@ -8,11 +8,11 @@ You have to have go (golang) installed
 
 Go get this repo:
 
-    go get github.com/makevoid/vanieth
+    go get github.com/iwat/vanieth
 
 `cd` into it:
 
-    cd $GOPATH/src/github.com/makevoid/vanieth
+    cd $GOPATH/src/github.com/iwat/vanieth
 
 An then run it!
 
