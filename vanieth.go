@@ -68,10 +68,12 @@ func main() {
 
 	loops := 0
 	start := time.Now()
+
+loop:
 	for {
 		select {
 		case <-done:
-			break
+			break loop
 		case <-tick:
 			fmt.Print(".")
 			loops++
